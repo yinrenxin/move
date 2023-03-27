@@ -14,19 +14,23 @@ use move_core_types::vm_status::StatusCode;
 
 /// The result of a linking and layout compatibility check. Here is what the different combinations. NOTE that if `check_struct_layout` is false, type safety over a series of upgrades cannot be guaranteed.
 /// mean:
-/// `{ check_struct_and_pub_function_linking: true, check_struct_layout: true, check_friend_linking: true }`: fully backward compatible
-/// `{ check_struct_and_pub_function_linking: true, check_struct_layout: true, check_friend_linking: false }`: Backward compatible, exclude the friend module declare and friend functions
-/// `{ check_struct_and_pub_function_linking: false, check_struct_layout: true, check_friend_linking: false }`: Dependent modules that reference functions or types in this module may not link. However, fixing, recompiling, and redeploying all dependent modules will work--no data migration needed.
-/// `{ check_struct_and_pub_function_linking: true, check_struct_layout: false, check_friend_linking: true }`: Attempting to read structs published by this module will now fail at runtime. However, dependent modules will continue to link. Requires data migration, but no changes to dependent modules.
-/// `{ check_struct_and_pub_function_linking: false, check_struct_layout: false, check_friend_linking: false }`: Everything is broken. Need both a data migration and changes to dependent modules.
+/// `{ check_struct_and_pub_function_linking: true, check_struct_layout: true, check_friend_linking: true, check_private_entry_linking: true }`: fully backward compatible
+/// `{ check_struct_and_pub_function_linking: true, check_struct_layout: true, check_friend_linking: true, check_private_entry_linking: false }`: Backwards compatible, private entry function signatures can change
+/// `{ check_struct_and_pub_function_linking: true, check_struct_layout: true, check_friend_linking: false, check_private_entry_linking: true }`: Backward compatible, exclude the friend module declare and friend functions
+/// `{ check_struct_and_pub_function_linking: true, check_struct_layout: true, check_friend_linking: false, check_private_entry_linking: false }`: Backward compatible, exclude the friend module declarations, friend functions, and private and friend entry function
+/// `{ check_struct_and_pub_function_linking: false, check_struct_layout: true, check_friend_linking: false, check_private_entry_linking: _ }`: Dependent modules that reference functions or types in this module may not link. However, fixing, recompiling, and redeploying all dependent modules will work--no data migration needed.
+/// `{ check_struct_and_pub_function_linking: true, check_struct_layout: false, check_friend_linking: true, check_private_entry_linking: _ }`: Attempting to read structs published by this module will now fail at runtime. However, dependent modules will continue to link. Requires data migration, but no changes to dependent modules.
+/// `{ check_struct_and_pub_function_linking: false, check_struct_layout: false, check_friend_linking: false, check_private_entry_linking: _ }`: Everything is broken. Need both a data migration and changes to dependent modules.
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub struct Compatibility {
     /// if false, do not ensure the dependent modules that reference public functions or structs in this module can link
-    check_struct_and_pub_function_linking: bool,
+    pub check_struct_and_pub_function_linking: bool,
     /// if false, do not ensure the struct layout capability
-    check_struct_layout: bool,
-    /// if false, treat `friend` as `private` when `check_struct_and_function_linking`.
-    check_friend_linking: bool,
+    pub check_struct_layout: bool,
+    /// if false, treat `friend` as `private` when `check_struct_and_pub_function_linking`.
+    pub check_friend_linking: bool,
+    /// if false, treat `entry` as `private` when `check_struct_and_pub_function_linking`.
+    pub check_private_entry_linking: bool,
 }
 
 impl Default for Compatibility {
@@ -35,6 +39,7 @@ impl Default for Compatibility {
             check_struct_and_pub_function_linking: true,
             check_struct_layout: true,
             check_friend_linking: true,
+            check_private_entry_linking: true,
         }
     }
 }
@@ -49,18 +54,7 @@ impl Compatibility {
             check_struct_and_pub_function_linking: false,
             check_struct_layout: false,
             check_friend_linking: false,
-        }
-    }
-
-    pub fn new(
-        check_struct_and_pub_function_linking: bool,
-        check_struct_layout: bool,
-        check_friend_linking: bool,
-    ) -> Self {
-        Self {
-            check_struct_and_pub_function_linking,
-            check_struct_layout,
-            check_friend_linking,
+            check_private_entry_linking: false,
         }
     }
 
@@ -68,17 +62,19 @@ impl Compatibility {
         self.check_struct_and_pub_function_linking
             || self.check_friend_linking
             || self.check_struct_layout
+            || self.check_private_entry_linking
     }
 
     /// Check compatibility for `new_module` relative to old module `old_module`.
     pub fn check(&self, old_module: &Module, new_module: &Module) -> PartialVMResult<()> {
-        let mut struct_and_pub_function_linking = true;
+        let mut struct_and_function_linking = true;
         let mut struct_layout = true;
         let mut friend_linking = true;
+        let mut private_entry_linking = true;
 
         // module's name and address are unchanged
         if old_module.address != new_module.address || old_module.name != new_module.name {
-            struct_and_pub_function_linking = false;
+            struct_and_function_linking = false;
         }
 
         // old module's structs are a subset of the new module's structs
@@ -89,7 +85,7 @@ impl Compatibility {
                     // Struct not present in new . Existing modules that depend on this struct will fail to link with the new version of the module.
                     // Also, struct layout cannot be guaranteed transitively, because after
                     // removing the struct, it could be re-added later with a different layout.
-                    struct_and_pub_function_linking = false;
+                    struct_and_function_linking = false;
                     struct_layout = false;
                     break;
                 }
@@ -101,7 +97,7 @@ impl Compatibility {
                     &new_struct.type_parameters,
                 )
             {
-                struct_and_pub_function_linking = false;
+                struct_and_function_linking = false;
             }
             if new_struct.fields != old_struct.fields {
                 // Fields changed. Code in this module will fail at runtime if it tries to
@@ -128,14 +124,18 @@ impl Compatibility {
         // we can remove/change a friend function if the function is not used by any module in the
         // friend list. But for simplicity, we decided to go to the more restrictive form now and
         // we may revisit this in the future.
-        for (name, old_func) in &old_module.exposed_functions {
-            let new_func = match new_module.exposed_functions.get(name) {
+        for (name, old_func) in &old_module.functions {
+            let new_func = match new_module.functions.get(name) {
                 Some(new_func) => new_func,
                 None => {
                     if matches!(old_func.visibility, Visibility::Friend) {
                         friend_linking = false;
-                    } else {
-                        struct_and_pub_function_linking = false;
+                    } else if old_func.visibility != Visibility::Private {
+                        struct_and_function_linking = false;
+                    } else if old_func.is_entry && self.check_private_entry_linking {
+                        // This must be a private entry function. So set the link breakage if we're
+                        // checking for that.
+                        private_entry_linking = false;
                     }
                     continue;
                 }
@@ -156,11 +156,19 @@ impl Compatibility {
             {
                 // if it was public(script), it must remain public(script)
                 // if it was not public(script), it _cannot_ become public(script)
-                old_func.is_entry == new_func.is_entry
+                // if it was private before, it can become public(script)
+                old_func.visibility == Visibility::Private || old_func.is_entry == new_func.is_entry
             } else {
-                // If it was an entry function, it must remain one.
                 // If it was not an entry function, it is allowed to become one.
-                !old_func.is_entry || new_func.is_entry
+                // If it was a private entry function and we have `check_private_entry_linking` then it must remain one
+                // If it was a public entry function, it must remain one.
+                let private_entry_changes_allowed_and_prev_private =
+                    old_func.visibility == Visibility::Private && !self.check_private_entry_linking;
+                let not_previously_an_entry_fun = !old_func.is_entry;
+                let new_is_an_entry_fun = new_func.is_entry;
+                private_entry_changes_allowed_and_prev_private
+                    || not_previously_an_entry_fun
+                    || new_is_an_entry_fun
             };
             if !is_vis_compatible
                 || !is_entry_compatible
@@ -172,9 +180,14 @@ impl Compatibility {
                 )
             {
                 if matches!(old_func.visibility, Visibility::Friend) {
+                    if old_func.is_entry {
+                        private_entry_linking = false;
+                    }
                     friend_linking = false;
+                } else if matches!(old_func.visibility, Visibility::Private) && old_func.is_entry {
+                    private_entry_linking = false;
                 } else {
-                    struct_and_pub_function_linking = false;
+                    struct_and_function_linking = false;
                 }
             }
         }
@@ -190,7 +203,7 @@ impl Compatibility {
             friend_linking = false;
         }
 
-        if self.check_struct_and_pub_function_linking && !struct_and_pub_function_linking {
+        if self.check_struct_and_pub_function_linking && !struct_and_function_linking {
             return Err(PartialVMError::new(
                 StatusCode::BACKWARD_INCOMPATIBLE_MODULE_UPDATE,
             ));
@@ -201,6 +214,11 @@ impl Compatibility {
             ));
         }
         if self.check_friend_linking && !friend_linking {
+            return Err(PartialVMError::new(
+                StatusCode::BACKWARD_INCOMPATIBLE_MODULE_UPDATE,
+            ));
+        }
+        if self.check_private_entry_linking && !private_entry_linking {
             return Err(PartialVMError::new(
                 StatusCode::BACKWARD_INCOMPATIBLE_MODULE_UPDATE,
             ));
@@ -298,8 +316,7 @@ impl InclusionCheck {
         // of the tables are the exact same.
         if (self == &Self::Equal)
             && (old_module.structs.len() != new_module.structs.len()
-                || old_module.exposed_functions.len() != new_module.exposed_functions.len()
-                || old_module.private_functions.len() != new_module.private_functions.len()
+                || old_module.functions.len() != new_module.functions.len()
                 || old_module.friends.len() != new_module.friends.len()
                 || old_module.constants.len() != new_module.constants.len())
         {
@@ -317,15 +334,11 @@ impl InclusionCheck {
         }
 
         // Function checks
-        for (name, old_func) in old_module
-            .exposed_functions
-            .iter()
-            .chain(old_module.private_functions.iter())
-        {
+        for (name, old_func) in &old_module.functions {
             match new_module
-                .exposed_functions
+                .functions
                 .get(name)
-                .or_else(|| new_module.private_functions.get(name))
+                .or_else(|| new_module.functions.get(name))
             {
                 Some(new_func) if old_func == new_func => (),
                 _ => {
