@@ -183,7 +183,7 @@ impl<'a> MoveTestAdapter<'a> for SimpleVMTestAdapter<'a> {
     fn execute_script(
         &mut self,
         script: CompiledScript,
-        type_args: Vec<TypeTag>,
+        type_arg_tags: Vec<TypeTag>,
         signers: Vec<ParsedAddress>,
         txn_args: Vec<MoveValue>,
         gas_budget: Option<u64>,
@@ -211,6 +211,11 @@ impl<'a> MoveTestAdapter<'a> for SimpleVMTestAdapter<'a> {
             .perform_session_action(
                 gas_budget,
                 |session, gas_status| {
+                    let type_args: Vec<_> = type_arg_tags
+                        .into_iter()
+                        .map(|tag| session.load_type(&tag))
+                        .collect::<VMResult<_>>()?;
+
                     session.execute_script(script_bytes, type_args, args, gas_status)
                 },
                 VMConfig::from(extra_args),
@@ -228,7 +233,7 @@ impl<'a> MoveTestAdapter<'a> for SimpleVMTestAdapter<'a> {
         &mut self,
         module: &ModuleId,
         function: &IdentStr,
-        type_args: Vec<TypeTag>,
+        type_arg_tags: Vec<TypeTag>,
         signers: Vec<ParsedAddress>,
         txn_args: Vec<MoveValue>,
         gas_budget: Option<u64>,
@@ -253,6 +258,11 @@ impl<'a> MoveTestAdapter<'a> for SimpleVMTestAdapter<'a> {
             .perform_session_action(
                 gas_budget,
                 |session, gas_status| {
+                    let type_args: Vec<_> = type_arg_tags
+                        .into_iter()
+                        .map(|tag| session.load_type(&tag))
+                        .collect::<VMResult<_>>()?;
+
                     session.execute_function_bypass_visibility(
                         module, function, type_args, args, gas_status,
                     )
