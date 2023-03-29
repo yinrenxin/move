@@ -56,6 +56,8 @@ impl New {
             }
             None => Path::new(&name),
         };
+        println!("{:?}",path.join(SourcePackageLayout::Sources.path()));
+        println!("{:?}",path.join(SourcePackageLayout::Manifest.path()));
         create_dir_all(path.join(SourcePackageLayout::Sources.path()))?;
         let mut w = std::fs::File::create(path.join(SourcePackageLayout::Manifest.path()))?;
         writeln!(

@@ -125,6 +125,14 @@ pub struct BuildConfig {
     #[clap(skip)]
     pub lock_file: Option<PathBuf>,
 
+    // /// manifest_path skip
+    // #[clap(skip)]
+    // pub manifest_path: Option<PathBuf>,
+
+    // /// manifest_path skip
+    // #[clap(long = "manifest-path", global = true, parse(from_os_str))]
+    // pub manifest_path: Option<PathBuf>,
+
     /// Additional named address mapping. Useful for tools in rust
     #[clap(skip)]
     pub additional_named_addresses: BTreeMap<String, AccountAddress>,

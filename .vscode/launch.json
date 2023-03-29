@@ -23,18 +23,34 @@
             ],
             "preLaunchTask": "Pretest"
         },
+        // {
+        //     "name": "move new hello",
+        //     "type": "extensionHost",
+        //     "request": "launch",
+        //     "args": [
+        //         "--extensionDevelopmentPath=${workspaceFolder}/language/move-analyzer/editors/code"
+        //     ],
+        //     "preLaunchTask": "Pretest"
+        // },
         {
-            "name": "VS Code Tokenizer Tests",
-            "type": "extensionHost",
+            "type": "lldb",
             "request": "launch",
-            "runtimeExecutable": "${execPath}",
-            "args": [
-                "${workspaceFolder}/language/move-analyzer/editors/code/tests",
-                "--extensionDevelopmentPath=${workspaceFolder}/language/move-analyzer/editors/code",
-                "--extensionTestsPath=${workspaceFolder}/language/move-analyzer/editors/code/out/tests/index.js"
-            ],
-            "outFiles": ["${workspaceFolder}/language/move-analyzer/editors/code/out/tests/**/*.js"],
-            "preLaunchTask": "Pretest"
-        }
+            "name": "move cli new",
+            "program": "${workspaceFolder}/target/debug/move",
+            "args": ["new","hello"],
+        },
+        // {
+        //     "name": "VS Code Tokenizer Tests",
+        //     "type": "extensionHost",
+        //     "request": "launch",
+        //     "runtimeExecutable": "${execPath}",
+        //     "args": [
+        //         "${workspaceFolder}/language/move-analyzer/editors/code/tests",
+        //         "--extensionDevelopmentPath=${workspaceFolder}/language/move-analyzer/editors/code",
+        //         "--extensionTestsPath=${workspaceFolder}/language/move-analyzer/editors/code/out/tests/index.js"
+        //     ],
+        //     "outFiles": ["${workspaceFolder}/language/move-analyzer/editors/code/out/tests/**/*.js"],
+        //     "preLaunchTask": "Pretest"
+        // }
     ]
 }
